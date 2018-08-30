@@ -1,2 +1,5 @@
 ---
 ispmail_hostname: mail.shaka.local
+mailtester_dnsmasq_ip: "10.0.0.100"
+mailtester_dnsmasq_client_ip: "10.0.0.50"
+# defaults file for mailtester-dnsmasq
