@@ -6,7 +6,6 @@ import ssl
 
 ##### Helpers
 
-
 def send_mail(recipient, *, sender="tester@mail.not.local", conn=None):
     if conn is None:
         conn = smtplib.SMTP("mail.shaka.local")
