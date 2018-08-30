@@ -15,10 +15,11 @@
     force: no
     remote_src: true
 
-- name: Put custom resolv.cong
+- name: Put custom resolv.conf
   copy:
     src: resolv.conf
     dest: /etc/resolv.conf
+  ignore_errors: yes 
 
 
 - name: Copy dnsmasq conf

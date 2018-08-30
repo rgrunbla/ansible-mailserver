@@ -6,15 +6,49 @@ services:
 
 before_install:
   - sudo apt-get update -q
+  - sudo apt-get install dnsutils -yy
+  - ip a
+  - cat /etc/resolv.conf
 
 install:
   - docker pull ansiblecheck/ansiblecheck:debian-stretch
-  - container_id=$(mktemp)
-  - docker run --detach --volume="${PWD}":/etc/ansible:ro --privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro ansiblecheck/ansiblecheck:debian-stretch /lib/systemd/systemd > "${container_id}"
-
+    # create mailserver container
+  - mailserver_container_id=$(mktemp)
+  - docker run --detach --volume="${PWD}":/etc/ansible:ro --privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro ansiblecheck/ansiblecheck:debian-stretch /lib/systemd/systemd > "${mailserver_container_id}"
+  - docker inspect "$(cat ${mailserver_container_id})"
 script:
-  - docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/test/test-docker.yml --syntax-check
-  - docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/test/test-docker.yml -v -l localhost
+  # setup mailserver
+  - docker exec "$(cat ${mailserver_container_id})" ansible-playbook /etc/ansible/test/test-docker.yml -v -l localhost
+  # create tester container
+  - tester_container_id=$(mktemp)
+  - docker run --detach --volume="${PWD}":/etc/ansible:ro --privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro ansiblecheck/ansiblecheck:debian-stretch /lib/systemd/systemd > "${tester_container_id}"
+  - docker inspect "$(cat ${tester_container_id})"
+  # setup tester
+  - docker exec "$(cat ${tester_container_id})" ansible-playbook /etc/ansible/test/tester-docker.yml -v -l localhost --tags "tester"
+  - sudo sh -c 'echo "nameserver 172.17.0.3" > /etc/resolv.conf'
+  # run tests
+  - docker exec "$(cat ${tester_container_id})" pytest /etc/ansible/test/suite/incoming-email.py
+
+after_failure:
+  - cat /etc/resolv.conf
+  - dig mail.local @172.17.0.3
+  - dig mail.shaka.local @172.17.0.3
+  - dig mail.shaka.local MX @172.17.0.3
+  - docker exec "$(cat ${tester_container_id})" cat /etc/dnsmasq.hosts
+  - docker exec "$(cat ${tester_container_id})" apt install dnsutils -y
+  - docker exec "$(cat ${mailserver_container_id})" apt install dnsutils -y
+  - docker exec "$(cat ${tester_container_id})" dig mail.shaka.local @172.17.0.3
+  - docker exec "$(cat ${mailserver_container_id})" dig mail.shaka.local @172.17.0.3
+  - docker exec "$(cat ${mailserver_container_id})" systemctl status postfix
+  - docker exec "$(cat ${mailserver_container_id})" systemctl status postgresql
+  - docker exec "$(cat ${mailserver_container_id})" systemctl restart postgresql
+  - docker exec "$(cat ${mailserver_container_id})" systemctl restart postfix
+  - echo "==== syslog ===="
+  - docker exec "$(cat ${mailserver_container_id})" cat /var/log/syslog
+  - echo "==== mail.log ===="
+  - docker exec "$(cat ${mailserver_container_id})" cat /var/log/mail.log
+
 
 after_script:
-  - docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/test/test-docker.yml -v -l localhost
+  #useless
+  #  - docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/test/test-docker.yml -v -l localhost
